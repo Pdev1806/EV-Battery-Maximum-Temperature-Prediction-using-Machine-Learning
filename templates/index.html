@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EV Battery T_max Predictor | KJS-CES-02</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Chart.js for What-If and Feature Importance charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <!-- Top Hero Header -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand-row">
+        <span class="brand-badge">KJS-CES-02</span>
+        <h1 class="brand-title">⚡ AI-Enabled Micro-Channel Battery Thermal Management</h1>
+      </div>
+      <p class="brand-subtitle">
+        Predict maximum battery surface temperature (<strong>T_max</strong>) to enable proactive cooling in electric vehicles.
+      </p>
+    </div>
+  </header>
+
+  <!-- Error Notification Banner -->
+  <div id="errorBanner" class="error-banner hidden" role="alert">
+    <span id="errorMessage">An error occurred</span>
+    <button type="button" class="close-error" onclick="dismissError()">✕</button>
+  </div>
+
+  <main class="main-container">
+    
+    <!-- Left Column: Input Control Panel -->
+    <aside class="sidebar-panel">
+      <div class="panel-header">
+        <h2>🎛️ Thermal Input Parameters</h2>
+        <p class="text-muted">Adjust operating conditions within validated simulation bounds.</p>
+      </div>
+
+      <!-- Quick Preset Buttons -->
+      <div class="preset-section">
+        <label class="section-label">⚡ Quick Presets</label>
+        <div class="preset-buttons">
+          <button type="button" class="btn-preset" onclick="applyPreset('baseline')">Baseline</button>
+          <button type="button" class="btn-preset" onclick="applyPreset('high_flow')">High Flow</button>
+          <button type="button" class="btn-preset" onclick="applyPreset('low_flow')">Low Flow</button>
+        </div>
+      </div>
+
+      <hr class="divider" />
+
+      <!-- Input 1: Hartmann Number -->
+      <div class="form-group">
+        <div class="label-row">
+          <label for="haNum">1. Hartmann Number (<em>Ha</em>)</label>
+          <span class="range-hint">0 – 60</span>
+        </div>
+        <div class="sync-input-row">
+          <input type="range" id="haSlider" min="0" max="60" step="1" value="30" oninput="syncFromSlider('ha')" />
+          <input type="number" id="haNum" min="0" max="60" step="0.5" value="30.0" oninput="syncFromNumber('ha')" />
+        </div>
+        <p class="tooltip-text">
+          ℹ️ <em>Measures magnetic field strength; Lorentz forces suppress coolant turbulence and vortex generation.</em>
+        </p>
+      </div>
+
+      <hr class="divider" />
+
+      <!-- Input 2: Nanoparticle Fraction -->
+      <div class="form-group">
+        <div class="label-row">
+          <label for="phiNum">2. Nanoparticle Fraction (<em>&phi;</em>)</label>
+          <span class="range-hint">0.010 – 0.050</span>
+        </div>
+        <div class="sync-input-row">
+          <input type="range" id="phiSlider" min="0.010" max="0.050" step="0.001" value="0.030" oninput="syncFromSlider('phi')" />
+          <input type="number" id="phiNum" min="0.010" max="0.050" step="0.001" value="0.030" oninput="syncFromNumber('phi')" />
+        </div>
+        <p class="tooltip-text">
+          ℹ️ <em>Volumetric fraction of nanoparticles; higher values increase nanofluid thermal conductivity.</em>
+        </p>
+      </div>
+
+      <hr class="divider" />
+
+      <!-- Input 3: Inlet Flow Velocity -->
+      <div class="form-group">
+        <div class="label-row">
+          <label for="uinNum">3. Inlet Flow Velocity (<em>u<sub>in</sub></em>) [m/s]</label>
+          <span class="range-hint">0.050 – 0.300</span>
+        </div>
+        <div class="sync-input-row">
+          <input type="range" id="uinSlider" min="0.050" max="0.300" step="0.005" value="0.175" oninput="syncFromSlider('uin')" />
+          <input type="number" id="uinNum" min="0.050" max="0.300" step="0.005" value="0.175" oninput="syncFromNumber('uin')" />
+        </div>
+        <p class="tooltip-text">
+          ℹ️ <em>Coolant inlet velocity; primary heat removal lever via convective heat transfer.</em>
+        </p>
+      </div>
+
+      <hr class="divider" />
+
+      <!-- Action Button -->
+      <button type="button" id="predictBtn" class="btn-primary" onclick="submitPrediction()">
+        <span class="btn-text">🚀 Predict T_max</span>
+        <span class="spinner hidden"></span>
+      </button>
+
+      <div class="model-meta-badge">
+        <span>Model: Random Forest (200 Trees)</span>
+        <span>Split: 80/20 Test</span>
+      </div>
+    </aside>
+
+    <!-- Right Column: Results & Analysis Tabs -->
+    <section class="content-panel">
+      
+      <!-- Real-Time Prediction Card -->
+      <div class="card result-card" id="resultCard">
+        <div class="result-header">
+          <span class="card-caption">Predicted Maximum Battery Surface Temperature</span>
+          <span id="callTimeBadge" class="call-time-badge">Response: -- ms</span>
+        </div>
+
+        <div class="result-body">
+          <div class="temp-display">
+            <span class="temp-val" id="tmaxVal">41.59</span>
+            <span class="temp-unit">°C</span>
+          </div>
+
+          <div class="badge-and-desc">
+            <div id="riskBadge" class="risk-badge risk-moderate">
+              <span id="riskIcon">🟡</span> Risk Condition: <span id="riskLabel">Moderate</span>
+            </div>
+            <p id="riskExplanation" class="risk-explanation">
+              Elevated thermal load within operational limits. Proactive cooling increase recommended.
+            </p>
+          </div>
+        </div>
+
+        <!-- Quick Summary Stats Grid -->
+        <div class="quick-stats-grid">
+          <div class="stat-cell">
+            <span class="stat-name">Hartmann (Ha)</span>
+            <span class="stat-val" id="statHa">30.0</span>
+          </div>
+          <div class="stat-cell">
+            <span class="stat-name">Nanoparticle (&phi;)</span>
+            <span class="stat-val" id="statPhi">0.030</span>
+          </div>
+          <div class="stat-cell">
+            <span class="stat-name">Inlet Velocity (u_in)</span>
+            <span class="stat-val" id="statUin">0.175 m/s</span>
+          </div>
+          <div class="stat-cell">
+            <span class="stat-name">Delta from Mean (43.46°C)</span>
+            <span class="stat-val" id="statDelta">-1.87 °C</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabs Navigation -->
+      <div class="tabs-container">
+        <div class="tabs-bar" role="tablist">
+          <button class="tab-btn active" onclick="switchTab('tab-performance')">📊 Model Performance</button>
+          <button class="tab-btn" onclick="switchTab('tab-importance')">⚖️ Feature Importance</button>
+          <button class="tab-btn" onclick="switchTab('tab-whatif')">📈 What-If Sensitivity</button>
+          <button class="tab-btn" onclick="switchTab('tab-insights')">🖼️ Data Insights</button>
+          <button class="tab-btn" onclick="switchTab('tab-about')">🔬 About & Physics</button>
+        </div>
+
+        <!-- TAB 1: Model Performance -->
+        <div id="tab-performance" class="tab-content active">
+          <h3>Model Evaluation & Benchmark Comparison</h3>
+          <p class="text-muted">Trained on 5,000 physics-based simulation points with an 80/20 train-test split.</p>
+
+          <div class="kpi-grid">
+            <div class="kpi-card">
+              <span class="kpi-title">Model Algorithm</span>
+              <span class="kpi-value">Random Forest</span>
+              <span class="kpi-sub">200 Estimators</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-title">R² Score</span>
+              <span class="kpi-value text-accent">0.9768</span>
+              <span class="kpi-sub">+0.77% vs Linear</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-title">Mean Absolute Error (MAE)</span>
+              <span class="kpi-value">0.7853 °C</span>
+              <span class="kpi-sub">-0.111 °C vs Baseline</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-title">Root Mean Squared Error (RMSE)</span>
+              <span class="kpi-value">0.9865 °C</span>
+              <span class="kpi-sub">Robust to Outliers</span>
+            </div>
+          </div>
+
+          <h4>1. Algorithm Benchmark: Random Forest vs Linear Regression</h4>
+          <div class="table-wrapper">
+            <table class="data-table" id="benchmarkTable">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th>MAE (°C)</th>
+                  <th>MSE (°C²)</th>
+                  <th>RMSE (°C)</th>
+                  <th>R² Score</th>
+                </tr>
+              </thead>
+              <tbody id="benchmarkTableBody">
+                <tr><td colspan="5">Loading benchmark data...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 style="margin-top: 1.5rem;">2. Random Forest Tree Count Sweep (<em>n_estimators</em>)</h4>
+          <div class="table-wrapper">
+            <table class="data-table" id="sweepTable">
+              <thead>
+                <tr>
+                  <th>n_estimators</th>
+                  <th>MAE</th>
+                  <th>MSE</th>
+                  <th>RMSE</th>
+                  <th>R²</th>
+                </tr>
+              </thead>
+              <tbody id="sweepTableBody">
+                <tr><td colspan="5">Loading sweep data...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 style="margin-top: 1.5rem;">3. Sample Actual vs. Predicted Test Cases</h4>
+          <div class="table-wrapper">
+            <table class="data-table" id="sampleTable">
+              <thead>
+                <tr>
+                  <th>Actual T_max (°C)</th>
+                  <th>Predicted T_max (°C)</th>
+                  <th>Absolute Error (°C)</th>
+                </tr>
+              </thead>
+              <tbody id="sampleTableBody">
+                <tr><td colspan="3">Loading test samples...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB 2: Feature Importance -->
+        <div id="tab-importance" class="tab-content">
+          <h3>Relative Feature Importance</h3>
+          <p class="text-muted">Derived from Gini impurity reduction across all 200 trees in the trained ensemble.</p>
+
+          <div class="two-col-layout">
+            <div class="chart-box">
+              <canvas id="importanceChart"></canvas>
+            </div>
+            <div class="table-box">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Feature</th>
+                    <th>Importance</th>
+                    <th>Physical Role</th>
+                  </tr>
+                </thead>
+                <tbody id="fiTableBody">
+                  <tr>
+                    <td><strong>u_in</strong></td>
+                    <td>68.70%</td>
+                    <td>Advective convective transport</td>
+                  </tr>
+                  <tr>
+                    <td><strong>phi</strong></td>
+                    <td>29.22%</td>
+                    <td>Nanofluid thermal conductivity</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Ha</strong></td>
+                    <td>2.09%</td>
+                    <td>MHD boundary layer stabilization</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="takeaways-card">
+            <h4>💡 Engineering Interpretation</h4>
+            <ul>
+              <li><strong>Inlet Velocity (u_in, ~68.7%):</strong> Dominates heat extraction. Increasing fluid velocity thins thermal boundary layers and maximizes local convective heat transfer.</li>
+              <li><strong>Nanoparticle Fraction (phi, ~29.2%):</strong> Secondary primary lever. Dispersed nanoparticles elevate thermal conductivity, accelerating conductive heat uptake from micro-channel walls.</li>
+              <li><strong>Hartmann Number (Ha, ~2.1%):</strong> Fine-tuning influence. External magnetic fields dampen vortex shedding, maintaining stable laminar micro-channel flow.</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- TAB 3: What-If Sensitivity -->
+        <div id="tab-whatif" class="tab-content">
+          <div class="section-title-row">
+            <div>
+              <h3>📈 What-If Sensitivity Explorer</h3>
+              <p class="text-muted">Simulate predicted <em>T_max</em> across the inlet velocity spectrum (<em>u_in</em>: 0.05 to 0.30 m/s) with <em>Ha</em> and <em>&phi;</em> held at current input values.</p>
+            </div>
+            <button type="button" class="btn-secondary" onclick="loadWhatIfCurve()">🔄 Refresh Curve</button>
+          </div>
+
+          <div class="chart-container-large">
+            <canvas id="whatifChart"></canvas>
+          </div>
+          <p class="chart-caption">
+            *This curve illustrates the steep non-linear thermal cooling benefit as inlet velocity increases.*
+          </p>
+        </div>
+
+        <!-- TAB 4: Data Insights -->
+        <div id="tab-insights" class="tab-content">
+          <h3>🖼️ Diagnostic & Exploratory Plots</h3>
+          <p class="text-muted">Generated by <code>analysis.py</code> and served directly from <code>static/</code>.</p>
+
+          <div class="plot-selector-row">
+            <label for="plotSelect">Select Diagnostic View:</label>
+            <select id="plotSelect" onchange="changePlot(this.value)">
+              <option value="actual_vs_predicted.png">Actual vs. Predicted T_max</option>
+              <option value="correlation_heatmap.png">Thermal Correlation Heatmap</option>
+              <option value="feature_importance.png">Feature Importance Bar Plot</option>
+              <option value="target_distribution.png">T_max Distribution</option>
+              <option value="velocity_vs_tmax.png">Inlet Velocity vs T_max</option>
+              <option value="phi_vs_tmax.png">Nanoparticle Fraction vs T_max</option>
+              <option value="ha_vs_tmax.png">Hartmann Number vs T_max</option>
+            </select>
+          </div>
+
+          <div class="image-viewer-card">
+            <img id="diagnosticImg" src="/static/actual_vs_predicted.png" alt="Diagnostic plot" />
+            <div id="imgCaption" class="img-caption">results/actual_vs_predicted.png</div>
+          </div>
+        </div>
+
+        <!-- TAB 5: About & Physics -->
+        <div id="tab-about" class="tab-content">
+          <h3>🔬 Project Overview & Thermal Architecture</h3>
+          <p>
+            This system implements the machine learning thermal prediction component of <strong>KJS-CES-02</strong>: 
+            <em>AI-Enabled Micro-Channel Battery Thermal Management System for Electric Vehicles</em>.
+          </p>
+
+          <div class="two-col-layout">
+            <div class="card about-card">
+              <h4>⚠️ Operating Band Classifications</h4>
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Temperature</th>
+                    <th>Risk Band</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>&lt; 35.0 °C</td>
+                    <td><span class="badge-mini safe">Safe</span></td>
+                    <td>Optimal cell performance</td>
+                  </tr>
+                  <tr>
+                    <td>35.0 – 45.0 °C</td>
+                    <td><span class="badge-mini moderate">Moderate</span></td>
+                    <td>Increase pump circulation</td>
+                  </tr>
+                  <tr>
+                    <td>45.0 – 55.0 °C</td>
+                    <td><span class="badge-mini high">High</span></td>
+                    <td>Initiate thermal throttling</td>
+                  </tr>
+                  <tr>
+                    <td>&ge; 55.0 °C</td>
+                    <td><span class="badge-mini critical">Critical</span></td>
+                    <td>Thermal runaway risk; cutoff</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="card about-card">
+              <h4>📚 Dataset & Methodology</h4>
+              <ul>
+                <li><strong>Dataset Source:</strong> Hugging Face (<code>Dijo-404/mhd-nanofluid-ev-thermal-dataset</code>).</li>
+                <li><strong>Sample Size:</strong> 5,000 rows × 15 physical variables.</li>
+                <li><strong>Algorithm:</strong> Scikit-learn <code>RandomForestRegressor(n_estimators=200, random_state=42)</code>.</li>
+                <li><strong>No Scaling Required:</strong> Decision tree ensembles naturally handle differing physical scales without standard scaling.</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="card about-card" style="margin-top: 1.2rem;">
+            <h4>⚠️ Limitations & Future Scope</h4>
+            <ul>
+              <li><strong>Simulation-Derived Data:</strong> Dataset represents numerical multiphysics simulations, not physical on-road vehicle sensors.</li>
+              <li><strong>Sensor Noise & Aging:</strong> Battery cell impedance changes over thousands of charge cycles and experimental noise are not modeled.</li>
+              <li><strong>Future Extensions:</strong> Integration with CAN-bus real-time BMS streams, dynamic PWM coolant pump controllers, and 3D spatial hotspot detection.</li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <div class="footer-inner">
+      <p class="footer-notice">
+        ⚡ <strong>KJS-CES-02</strong>: Trained on simulation-derived data; not validated on real EV data.
+      </p>
+      <p class="footer-credits">
+        Random Forest Regression Model (200 Trees) | Flask Microservice Architecture
+      </p>
+    </div>
+  </footer>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>
